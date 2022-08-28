@@ -21,7 +21,7 @@ import (
 var userCollection *mongo.Collection = configs.GetCollection(configs.DB, "users")
 var validate = validator.New()
 
-func CreateUser(w http.ResponseWriter, r *http.Request) {
+func Register(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 	var user models.User
@@ -41,26 +41,34 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 			Name:      user.Name,
 			Email:     user.Email,
 			Company:   user.Company,
+			Password:  helpers.GenerateHash(user.Password),
+			Role:      user.Role,
 			IsActive:  false,
 			TsCreated: time.Now(),
 			TsUpdated: time.Now(),
 		}
-		result, err := userCollection.InsertOne(ctx, newUser)
+		err := userCollection.FindOne(ctx, bson.M{"role": user.Role}).Decode(&user)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			response := responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+			result, err := userCollection.InsertOne(ctx, newUser)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				response := responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			response := responses.UserResponse{Status: http.StatusCreated, Message: "success", Data: map[string]interface{}{"data": result}}
 			json.NewEncoder(w).Encode(response)
 			return
 		}
-		w.WriteHeader(http.StatusCreated)
-		response := responses.UserResponse{Status: http.StatusCreated, Message: "success", Data: map[string]interface{}{"data": result}}
+		w.WriteHeader(http.StatusConflict)
+		response := responses.UserResponse{Status: http.StatusConflict, Message: "error", Data: map[string]interface{}{"data": "Cannot create more superadmins."}}
 		json.NewEncoder(w).Encode(response)
 		return
 	}
 	w.WriteHeader(http.StatusConflict)
 	response := responses.UserResponse{Status: http.StatusConflict, Message: "fail", Data: map[string]interface{}{"data": "email already exists"}}
 	json.NewEncoder(w).Encode(response)
-
 }
 
 func GetUser(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +81,6 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	objId, _ := primitive.ObjectIDFromHex(userId)
-	log.Println(objId)
 	err := userCollection.FindOne(ctx, bson.M{"_id": objId}).Decode(&user)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -81,6 +88,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(response)
 		return
 	}
+
 	w.WriteHeader(http.StatusOK)
 	response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"data": user}}
 	json.NewEncoder(w).Encode(response)
@@ -168,6 +176,32 @@ func ActivateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusBadRequest)
 	response := responses.UserResponse{Status: http.StatusBadRequest, Message: "failed", Data: map[string]interface{}{"data": "email id is invalid"}}
+	json.NewEncoder(w).Encode(response)
+}
+
+func LoginUser(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	var user models.User
+	email := r.Header.Get("email")
+	password := r.Header.Get("password")
+	defer cancel()
+	err := userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		response := responses.UserResponse{Status: http.StatusNotFound, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	token := helpers.GenerateToken(user.Email)
+	status := helpers.ValidateHash(user.Password, password)
+	if status {
+		w.WriteHeader(http.StatusOK)
+		response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"details": user, "token": token}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	w.WriteHeader(http.StatusUnauthorized)
+	response := responses.UserResponse{Status: http.StatusUnauthorized, Message: "failed", Data: map[string]interface{}{"data": "invalid credentials"}}
 	json.NewEncoder(w).Encode(response)
 
 }

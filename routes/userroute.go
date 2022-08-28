@@ -7,9 +7,10 @@ import (
 )
 
 func UserRoute(router *mux.Router) {
-	router.HandleFunc("/user/create", controllers.CreateUser).Methods("POST")
+	router.HandleFunc("/user/register", controllers.Register).Methods("POST")
 	router.HandleFunc("/user/{userId}", controllers.GetUser).Methods("GET")
 	router.HandleFunc("/user/", controllers.GetAllUser).Methods("GET")
 	router.HandleFunc("/user/{userId}", controllers.DeleteUser).Methods("DELETE")
 	router.HandleFunc("/user/activate/{userId}", controllers.ActivateUser).Methods("POST")
+	router.HandleFunc("/user/login", controllers.LoginUser).Methods("POST")
 }
