@@ -45,15 +45,54 @@ func ValidateHash(hash, pass string) bool {
 }
 
 func GenerateToken(data string) string {
-	key := paseto.NewV4SymmetricKey()
+	key, err := paseto.V4SymmetricKeyFromHex(GetSecretKey())
+	if err != nil {
+		return ""
+	}
 	token := paseto.NewToken()
 
 	token.SetIssuedAt(time.Now())
 	token.SetNotBefore(time.Now())
-	token.SetExpiration(time.Now().Add(2 * time.Hour))
+	token.SetExpiration(time.Now().Add(20 * time.Second))
 
 	token.SetString("user-id", "<uuid>")
 
 	encrypted := token.V4Encrypt(key, nil)
 	return encrypted
+}
+
+func GenerateRefreshToken(data string) string {
+	key, err := paseto.V4SymmetricKeyFromHex(GetSecretKey())
+	if err != nil {
+		return ""
+	}
+	token := paseto.NewToken()
+	token.SetIssuedAt(time.Now())
+	token.SetNotBefore(time.Now())
+	token.SetExpiration(time.Now().Add(24 * time.Hour))
+	token.SetString("user-id", "<uuid>")
+
+	encrypted := token.V4Encrypt(key, nil)
+	return encrypted
+}
+
+func ValidateAccessToken(token string) bool {
+	parser := paseto.NewParser()
+	parser.AddRule(paseto.NotExpired())
+	parser.AddRule(paseto.ValidAt(time.Now()))
+	log.Println("Token at Validation")
+	key, err := paseto.V4SymmetricKeyFromHex(GetSecretKey())
+	if err != nil {
+		log.Println("error fetching key")
+		return false
+	}
+
+	parsedToken, err := parser.ParseV4Local(key, token, nil)
+	if err != nil {
+		log.Println(err.Error())
+		return false
+	}
+	log.Println(parsedToken)
+	return true
+
 }

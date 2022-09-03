@@ -19,6 +19,8 @@ import (
 )
 
 var userCollection *mongo.Collection = configs.GetCollection(configs.DB, "users")
+var userSessionCollection *mongo.Collection = configs.GetCollection(configs.DB, "usersession")
+
 var validate = validator.New()
 
 func Register(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +170,7 @@ func ActivateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := helpers.CheckEmail(user.Email, user.Name)
-	if status == true {
+	if status {
 		w.WriteHeader(http.StatusOK)
 		response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"data": user}}
 		json.NewEncoder(w).Encode(response)
@@ -181,9 +183,12 @@ func ActivateUser(w http.ResponseWriter, r *http.Request) {
 
 func LoginUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
 	var user models.User
+	var session models.UserSession
 	email := r.Header.Get("email")
 	password := r.Header.Get("password")
+
 	defer cancel()
 	err := userCollection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
@@ -192,11 +197,26 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(response)
 		return
 	}
-	token := helpers.GenerateToken(user.Email)
+
 	status := helpers.ValidateHash(user.Password, password)
 	if status {
+		token := helpers.GenerateToken(user.Email)
+		refresh := helpers.GenerateRefreshToken(user.Email)
+		session.AccessToken = token
+		session.RefreshToken = refresh
+		session.UserAgent = r.Header.Get("User-Agent")
+		session.TsCreated = time.Now()
+
+		_, err = userSessionCollection.InsertOne(ctx, session)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			response := responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
-		response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"details": user, "token": token}}
+		response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"details": user, "access-token": token, "refresh-token": refresh}}
 		json.NewEncoder(w).Encode(response)
 		return
 	}
@@ -205,3 +225,11 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 
 }
+
+// func Refresh(w http.ResponseWriter, r *http.Request){
+// 	ctx, cancel := context.WithTimeout(context.Background(),10*time.Second)
+
+// 	var session models.UserSession
+
+// 	refreshToken := r.Header.get("refresh-token")
+// }

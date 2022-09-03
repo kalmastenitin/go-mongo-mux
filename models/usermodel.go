@@ -19,9 +19,11 @@ type User struct {
 }
 
 type UserSession struct {
-	Id        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	User      primitive.ObjectID `bson:"user,omitempty"`
-	TsCreated time.Time          `json:"created_on"`
-	TsUpdated time.Time          `json:"updated_on"`
-	UserAgent string             `bson:"useragent,omitempty"`
+	Id           primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	User         primitive.ObjectID `bson:"user,omitempty"`
+	AccessToken  string             `json:"accesstoken"`
+	RefreshToken string             `json:"refreshtoken"`
+	TsCreated    time.Time          `json:"created_on"`
+	TsUpdated    time.Time          `json:"updated_on"`
+	UserAgent    string             `bson:"useragent,omitempty"`
 }
