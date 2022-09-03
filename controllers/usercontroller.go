@@ -9,6 +9,7 @@ import (
 	"mux-mongo-api/models"
 	"mux-mongo-api/responses"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -25,7 +26,7 @@ var validate = validator.New()
 
 func Register(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
+	w.Header().Set("Content-Type", "application/json")
 	var user models.User
 	defer cancel()
 
@@ -73,9 +74,59 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func CreateAdmin(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	w.Header().Set("Content-Type", "application/json")
+	var user models.User
+	defer cancel()
+
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		response := responses.UserResponse{Status: http.StatusBadRequest, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	err := userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&user)
+	if err != nil {
+		newUser := models.User{
+			Id:        primitive.NewObjectID(),
+			Name:      user.Name,
+			Email:     user.Email,
+			Company:   user.Company,
+			Password:  helpers.GenerateHash(user.Password),
+			Role:      "admin",
+			IsActive:  false,
+			TsCreated: time.Now(),
+			TsUpdated: time.Now(),
+		}
+		err := userCollection.FindOne(ctx, bson.M{"role": user.Role}).Decode(&user)
+		if err != nil {
+			result, err := userCollection.InsertOne(ctx, newUser)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				response := responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+				json.NewEncoder(w).Encode(response)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			response := responses.UserResponse{Status: http.StatusCreated, Message: "success", Data: map[string]interface{}{"data": result}}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+		response := responses.UserResponse{Status: http.StatusConflict, Message: "error", Data: map[string]interface{}{"data": "Cannot create more superadmins."}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	w.WriteHeader(http.StatusConflict)
+	response := responses.UserResponse{Status: http.StatusConflict, Message: "fail", Data: map[string]interface{}{"data": "email already exists"}}
+	json.NewEncoder(w).Encode(response)
+}
+
 func GetUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
+	w.Header().Set("Content-Type", "application/json")
 	params := mux.Vars(r)
 	userId := params["userId"]
 
@@ -99,6 +150,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 
 func GetAllUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	w.Header().Set("Content-Type", "application/json")
 	var users []models.User
 	defer cancel()
 
@@ -122,16 +174,20 @@ func GetAllUser(w http.ResponseWriter, r *http.Request) {
 
 	}
 	w.WriteHeader(http.StatusOK)
-	response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"data": users}}
+	response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"users": users}}
 	json.NewEncoder(w).Encode(response)
 
 }
 
 func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	w.Header().Set("Content-Type", "application/json")
+	requestEmail := r.Context().Value("user-id")
+	log.Println(requestEmail)
 
 	params := mux.Vars(r)
 	userId := params["userId"]
+
 	defer cancel()
 	objId, _ := primitive.ObjectIDFromHex(userId)
 
@@ -156,6 +212,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 func ActivateUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	w.Header().Set("Content-Type", "application/json")
 	var user models.User
 	params := mux.Vars(r)
 	userId := params["userId"]
@@ -183,7 +240,7 @@ func ActivateUser(w http.ResponseWriter, r *http.Request) {
 
 func LoginUser(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
+	w.Header().Set("Content-Type", "application/json")
 	var user models.User
 	var session models.UserSession
 	email := r.Header.Get("email")
@@ -226,10 +283,49 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// func Refresh(w http.ResponseWriter, r *http.Request){
-// 	ctx, cancel := context.WithTimeout(context.Background(),10*time.Second)
+func RefreshToken(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	w.Header().Set("Content-Type", "application/json")
+	authHeader := strings.Split(r.Header.Get("Authorization"), "Bearer ")
+	requestEmail := r.Context().Value("user-id")
+	var user models.User
+	var session models.UserSession
 
-// 	var session models.UserSession
+	defer cancel()
+	err := userCollection.FindOne(ctx, bson.M{"email": requestEmail}).Decode(&user)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		response := responses.UserResponse{Status: http.StatusNotFound, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	log.Println(authHeader[1])
+	err = userSessionCollection.FindOne(ctx, bson.M{"refreshtoken": authHeader[1]}).Decode(&session)
 
-// 	refreshToken := r.Header.get("refresh-token")
-// }
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		response := responses.UserResponse{Status: http.StatusNotFound, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	var token = helpers.GenerateToken(user.Email)
+
+	result, err := userSessionCollection.UpdateOne(
+		ctx,
+		bson.M{"_id": session.Id},
+		bson.D{
+			{"$set", bson.D{{"accesstoken", token}}},
+		},
+	)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		response := responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: map[string]interface{}{"data": err.Error()}}
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+	log.Println(result)
+
+	w.WriteHeader(http.StatusOK)
+	response := responses.UserResponse{Status: http.StatusOK, Message: "success", Data: map[string]interface{}{"details": user, "access-token": token, "refresh-token": session.RefreshToken}}
+	json.NewEncoder(w).Encode(response)
+}

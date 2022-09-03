@@ -39,5 +39,4 @@ func CheckEmail(usermail, username string) bool {
 		}
 		return false
 	}
-
 }

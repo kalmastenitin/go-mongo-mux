@@ -53,9 +53,9 @@ func GenerateToken(data string) string {
 
 	token.SetIssuedAt(time.Now())
 	token.SetNotBefore(time.Now())
-	token.SetExpiration(time.Now().Add(20 * time.Second))
+	token.SetExpiration(time.Now().Add(2 * time.Hour))
 
-	token.SetString("user-id", "<uuid>")
+	token.SetString("user-id", data)
 
 	encrypted := token.V4Encrypt(key, nil)
 	return encrypted
@@ -70,13 +70,13 @@ func GenerateRefreshToken(data string) string {
 	token.SetIssuedAt(time.Now())
 	token.SetNotBefore(time.Now())
 	token.SetExpiration(time.Now().Add(24 * time.Hour))
-	token.SetString("user-id", "<uuid>")
+	token.SetString("user-id", data)
 
 	encrypted := token.V4Encrypt(key, nil)
 	return encrypted
 }
 
-func ValidateAccessToken(token string) bool {
+func ValidateAccessToken(token string) (string, error) {
 	parser := paseto.NewParser()
 	parser.AddRule(paseto.NotExpired())
 	parser.AddRule(paseto.ValidAt(time.Now()))
@@ -84,15 +84,49 @@ func ValidateAccessToken(token string) bool {
 	key, err := paseto.V4SymmetricKeyFromHex(GetSecretKey())
 	if err != nil {
 		log.Println("error fetching key")
-		return false
+		return "", err
 	}
 
 	parsedToken, err := parser.ParseV4Local(key, token, nil)
 	if err != nil {
 		log.Println(err.Error())
-		return false
+		return "", err
 	}
-	log.Println(parsedToken)
-	return true
+	return parsedToken.GetString("user-id")
 
+}
+
+func ValidateRefreshToken(token string) (string, error) {
+	parser := paseto.NewParser()
+	parser.AddRule(paseto.NotExpired())
+	parser.AddRule(paseto.ValidAt(time.Now()))
+	log.Println("Token at Validation")
+	key, err := paseto.V4SymmetricKeyFromHex(GetSecretKey())
+	if err != nil {
+		log.Println("error fetching key")
+		return "", err
+	}
+
+	parsedToken, err := parser.ParseV4Local(key, token, nil)
+	if err != nil {
+		log.Println(err.Error())
+		return "", err
+	}
+	return parsedToken.GetString("user-id")
+
+}
+
+func TokenParser(token string) (string, error) {
+	parser := paseto.NewParser()
+	key, err := paseto.V4SymmetricKeyFromHex(GetSecretKey())
+	if err != nil {
+		log.Println("error fetching key")
+		return "", err
+	}
+	parsedToken, err := parser.ParseV4Local(key, token, nil)
+	if err != nil {
+		log.Println(err.Error())
+		return "", err
+	}
+	return parsedToken.GetString("user-id")
 }
